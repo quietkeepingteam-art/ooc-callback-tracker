@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SAH · Out-of-Context Callback Tracker</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='31' fill='%23FFC93C' stroke='%231B1B1B' stroke-width='3'/%3E%3Cg transform='rotate(-12 32 34)'%3E%3Crect x='17' y='16' width='11' height='19' rx='5' fill='%23FF6FA5' stroke='%231B1B1B' stroke-width='2.5'/%3E%3Crect x='36' y='31' width='11' height='19' rx='5' fill='%23FF6FA5' stroke='%231B1B1B' stroke-width='2.5'/%3E%3Cpath d='M26 31c4 6 8 8 12 6' stroke='%231B1B1B' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/g%3E%3Ccircle cx='24' cy='24' r='6.5' fill='%23fff' stroke='%231B1B1B' stroke-width='2'/%3E%3Ccircle cx='42' cy='27' r='5.5' fill='%23fff' stroke='%231B1B1B' stroke-width='2'/%3E%3Ccircle cx='26' cy='25.5' r='2.4' fill='%231B1B1B'/%3E%3Ccircle cx='43.5' cy='28' r='2' fill='%231B1B1B'/%3E%3Cpath d='M20 42c3 4 8 5 12 3' stroke='%231B1B1B' stroke-width='2.5' fill='none' stroke-linecap='round'/%3E%3Cpath d='M10 14l4 4M13 10l3 5' stroke='%231B1B1B' stroke-width='2' stroke-linecap='round'/%3E%3Cpath d='M54 16l-4 4M51 12l-3 5' stroke='%231B1B1B' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Baloo+2:wght@500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --ink:#1B1B1B;
+    --bg:#FFF4E0;
+    --card:#FFFFFF;
+
+    --pending:#FF9F1C;
+    --pending-bg:#FFF0D6;
+    --pending-deep:#E8830A;
+
+    --completed:#20C46B;
+    --completed-bg:#DCFBE8;
+    --completed-deep:#159650;
+
+    --recycled:#7B6BFF;
+    --recycled-bg:#EAE6FF;
+    --recycled-deep:#5C48E0;
+
+    --pink:#FF5FA2;
+    --blue:#33B7FF;
+    --yellow:#FFD23F;
+
+    --shadow-hard: 3px 3px 0 var(--ink);
+    --shadow-hard-sm: 2px 2px 0 var(--ink);
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(circle, rgba(27,27,27,0.06) 1.6px, transparent 1.6px) 0 0/22px 22px,
+      var(--bg);
+    color:var(--ink);
+    font-family:'Baloo 2',-apple-system,'Segoe UI',sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .display{font-family:'Bangers',cursive; letter-spacing:0.03em;}
+  .mono{font-family:'Baloo 2'; font-weight:700;}
+
+  ::selection{background:var(--yellow);}
+
+  /* ---------- decorative floaters ---------- */
+  .floaty{position:fixed; pointer-events:none; z-index:1; opacity:.85; animation:bob 5s ease-in-out infinite;}
+  @keyframes bob{0%,100%{transform:translateY(0) rotate(var(--r,0deg));}50%{transform:translateY(-10px) rotate(var(--r,0deg));}}
+
+  /* ---------- header ---------- */
+  header{
+    position:sticky; top:0; z-index:30;
+    background:var(--card);
+    border-bottom:4px solid var(--ink);
+    padding:14px 20px;
+  }
+  .header-row{
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+    max-width:1520px; margin:0 auto;
+  }
+  .mascot{
+    width:46px; height:46px; flex-shrink:0;
+    animation:ring 2.6s ease-in-out infinite;
+    transform-origin:50% 20%;
+  }
+  @keyframes ring{
+    0%,80%,100%{transform:rotate(0deg);}
+    82%{transform:rotate(-14deg);}
+    85%{transform:rotate(11deg);}
+    88%{transform:rotate(-8deg);}
+    91%{transform:rotate(5deg);}
+    94%{transform:rotate(0deg);}
+  }
+  .brand-text{margin-right:auto;}
+  .brand-text h1{
+    font-size:26px; margin:0; line-height:1; color:var(--ink);
+    text-shadow: 2px 2px 0 var(--yellow), 4px 4px 0 var(--ink);
+  }
+  .brand-text .sub{
+    font-size:11.5px; font-weight:700; color:#6b6b6b; margin-top:4px; display:block;
+  }
+  .sah-tag{
+    background:var(--ink); color:#fff; font-family:'Bangers'; letter-spacing:.05em;
+    font-size:13px; padding:3px 9px 1px; border-radius:6px; transform:rotate(-3deg);
+    display:inline-block; margin-right:8px;
+  }
+
+  .search-wrap{position:relative; flex:1; min-width:180px; max-width:320px;}
+  .search-wrap input{
+    width:100%; padding:10px 12px 10px 34px; border-radius:999px;
+    border:3px solid var(--ink); background:#fff;
+    font-size:13.5px; color:var(--ink); font-family:'Baloo 2'; font-weight:600;
+    box-shadow: var(--shadow-hard-sm);
+  }
+  .search-wrap input:focus{outline:none; box-shadow: var(--shadow-hard);}
+  .search-wrap svg{position:absolute; left:12px; top:50%; transform:translateY(-50%); opacity:0.6;}
+
+  .btn{
+    border:3px solid var(--ink); cursor:pointer; font-family:'Baloo 2'; font-weight:700;
+    border-radius:999px; padding:9px 16px; font-size:13.5px;
+    display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
+    background:#fff; color:var(--ink);
+    box-shadow: var(--shadow-hard-sm);
+    transition: transform .08s ease, box-shadow .08s ease;
+  }
+  .btn:hover{transform:translate(-1px,-1px); box-shadow:4px 4px 0 var(--ink);}
+  .btn:active{transform:translate(2px,2px); box-shadow:0 0 0 var(--ink);}
+  .btn-primary{background:var(--pink); color:#fff;}
+  .btn-sm{padding:6px 12px; font-size:12px; border-width:2.5px;}
+  .btn-block{width:100%; justify-content:center;}
+
+  .btn-completed{background:var(--completed-bg); color:var(--completed-deep);}
+  .btn-recycled{background:var(--recycled-bg); color:var(--recycled-deep);}
+  .btn-pending{background:var(--pending-bg); color:var(--pending-deep);}
+  .btn-ghost{background:#fff;}
+
+  /* ---------- board ---------- */
+  .board{
+    position:relative; z-index:2;
+    max-width:1520px; margin:0 auto; padding:20px 20px 40px;
+    display:grid; grid-template-columns:repeat(3,minmax(260px,1fr));
+    gap:16px; align-items:start;
+  }
+  @media (max-width:1000px){ .board{grid-template-columns:1fr;} }
+
+  .column{
+    background:var(--card);
+    border:3.5px solid var(--ink);
+    border-radius:20px;
+    display:flex; flex-direction:column;
+    min-height:140px;
+    max-height:calc(100vh - 110px);
+    box-shadow: 5px 5px 0 var(--ink);
+  }
+  .col-head{
+    display:flex; align-items:center; gap:10px;
+    padding:14px 16px 12px; border-bottom:3px solid var(--ink);
+    border-radius:17px 17px 0 0;
+  }
+  .col-head.pending{background:var(--pending-bg);}
+  .col-head.completed{background:var(--completed-bg);}
+  .col-head.recycled{background:var(--recycled-bg);}
+
+  .col-emoji{font-size:22px; line-height:1;}
+  .col-title{font-family:'Bangers'; font-size:19px; letter-spacing:.02em; flex:1; line-height:1;}
+  .col-desc{font-size:10.5px; font-weight:700; color:#5c5c5c; display:block; margin-top:3px;}
+  .col-count{
+    font-family:'Bangers'; font-size:16px; background:#fff;
+    border:2.5px solid var(--ink); border-radius:50%; width:30px; height:30px;
+    display:flex; align-items:center; justify-content:center;
+  }
+
+  .col-body{padding:12px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:12px;}
+  .col-body::-webkit-scrollbar{width:8px;}
+  .col-body::-webkit-scrollbar-thumb{background:var(--ink); border-radius:4px;}
+
+  .empty-hint{
+    text-align:center; color:#8a8a8a; font-weight:700; font-size:12.5px;
+    padding:30px 14px; line-height:1.5;
+  }
+
+  /* ---------- card ---------- */
+  .card{
+    background:#fff; border:3px solid var(--ink);
+    border-radius:14px; padding:13px 13px 11px;
+    box-shadow: var(--shadow-hard-sm);
+    transition: transform .12s ease;
+  }
+  .card:nth-child(3n+1){ transform: rotate(-0.6deg); }
+  .card:nth-child(3n+2){ transform: rotate(0.7deg); }
+  .card:nth-child(3n){ transform: rotate(-0.3deg); }
+  .card:hover{ transform: rotate(0deg) translateY(-2px); }
+
+  .card-top{display:flex; justify-content:space-between; align-items:flex-start; gap:8px;}
+  .card-name{font-weight:800; font-size:15px; line-height:1.25;}
+  .card-phone{font-size:12.5px; font-weight:700; color:#444; margin-top:2px;}
+  .card-tags{display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;}
+  .tag{
+    font-size:10.5px; font-weight:800; border:2px solid var(--ink); border-radius:999px;
+    padding:2px 8px; display:inline-flex; align-items:center; gap:3px; background:#fff;
+  }
+  .tag-state{background:var(--blue); color:#fff;}
+  .tag-tz{background:var(--yellow); color:var(--ink);}
+  .tag-unknown{background:#eee; color:#888;}
+
+  .card-notes{
+    font-size:12px; font-weight:600; color:#444; margin-top:8px;
+    background:#FBF8F1; border:2px dashed #d8d2c2; border-radius:10px; padding:7px 9px;
+    line-height:1.4; white-space:pre-wrap; word-break:break-word;
+  }
+  .card-meta{font-size:10.5px; font-weight:700; color:#999; margin-top:8px;}
+
+  .icon-btn{
+    background:#fff; border:2px solid var(--ink); cursor:pointer; color:var(--ink);
+    padding:3px; border-radius:8px; display:flex; box-shadow:1.5px 1.5px 0 var(--ink);
+  }
+  .icon-btn:hover{background:#ffe1ea;}
+
+  .card-actions{display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;}
+
+  /* day tracker */
+  .day-tracker{display:flex; align-items:center; gap:7px; margin-top:9px;}
+  .day-dots{display:flex; gap:3px;}
+  .day-dots i{
+    width:14px; height:14px; border-radius:50%; background:var(--pending-bg);
+    border:2px solid var(--pending); display:block; font-style:normal;
+  }
+  .day-dots i.filled{background:var(--pending); border-color:var(--pending-deep);}
+  .day-dots i.today{box-shadow:0 0 0 2px var(--pending-deep);}
+  .day-label{font-size:10.5px; font-weight:800; color:var(--pending-deep); white-space:nowrap;}
+  .day-label.final{color:#D9433C;}
+  .badge-final{
+    font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.03em;
+    color:#D9433C; background:#FCE4E2; border:2px solid #D9433C; border-radius:7px;
+    padding:2px 7px; margin-top:7px; display:inline-block;
+  }
+
+  /* ---------- modal ---------- */
+  .overlay{
+    position:fixed; inset:0; background:rgba(27,27,27,0.55);
+    display:none; align-items:center; justify-content:center; z-index:100; padding:16px;
+  }
+  .overlay.open{display:flex;}
+  .modal{
+    background:#fff; border:4px solid var(--ink); border-radius:22px; width:100%; max-width:420px;
+    padding:22px 22px 20px; box-shadow:8px 8px 0 var(--ink); max-height:90vh; overflow-y:auto;
+  }
+  .modal h2{margin:0 0 3px; font-family:'Bangers'; font-size:24px; letter-spacing:.02em;}
+  .modal .modal-sub{font-size:12px; font-weight:700; color:#888; margin:0 0 16px;}
+  .field{margin-bottom:13px;}
+  .field label{font-size:12px; font-weight:800; color:#555; display:block; margin-bottom:5px;}
+  .field input, .field textarea{
+    width:100%; border:2.5px solid var(--ink); border-radius:12px; padding:9px 11px;
+    font-size:14px; font-family:'Baloo 2'; font-weight:600; color:var(--ink); background:#fff;
+  }
+  .field input:focus, .field textarea:focus{outline:none; box-shadow: var(--shadow-hard-sm);}
+  .field textarea{resize:vertical; min-height:56px;}
+  .row-2{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .modal-actions{display:flex; gap:8px; margin-top:16px;}
+  .modal-actions .btn{flex:1;}
+  .zip-preview{
+    font-size:12px; font-weight:700; margin-top:-5px; margin-bottom:13px; min-height:18px;
+  }
+  .zip-preview.ok{color:var(--completed-deep);}
+  .zip-preview.bad{color:#999;}
+
+  .toast{
+    position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(10px);
+    background:var(--ink); color:#fff; padding:11px 18px; border-radius:999px; font-size:13.5px;
+    font-weight:700; opacity:0; pointer-events:none; transition:all .2s ease; z-index:200;
+    box-shadow:3px 3px 0 var(--pink); border:2px solid var(--ink);
+  }
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+
+  .stats-strip{
+    position:relative; z-index:2;
+    display:flex; gap:16px; font-size:12px; font-weight:700; color:#7a7a7a;
+    padding:12px 20px 0; max-width:1520px; margin:0 auto; flex-wrap:wrap; align-items:center;
+  }
+  .stats-strip b{color:var(--ink); font-family:'Bangers'; font-weight:400; font-size:14px;}
+  .save-status{font-size:11.5px; color:var(--completed-deep); font-weight:800; opacity:0; transition:opacity .3s ease;}
+  .save-status.show{opacity:1;}
+
+  .storage-warning{
+    max-width:1520px; margin:10px auto 0; padding:10px 20px 0;
+    font-size:12.5px; font-weight:700; color:#D9433C; line-height:1.5; position:relative; z-index:2;
+  }
+
+  /* ---------- futures bar ---------- */
+  .futures-bar{
+    position:relative; z-index:2;
+    max-width:1520px; margin:14px auto 0; padding:0 20px;
+  }
+  .futures-head{
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    background:#fff; border:3px solid var(--ink); border-radius:16px;
+    padding:10px 14px; box-shadow: var(--shadow-hard-sm);
+  }
+  .futures-emoji{font-size:19px;}
+  .futures-title{font-family:'Bangers'; font-size:17px; letter-spacing:.02em;}
+  .futures-count{
+    font-family:'Bangers'; font-size:15px; background:var(--yellow);
+    border:2.5px solid var(--ink); border-radius:50%; width:27px; height:27px;
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  }
+  .futures-hint{font-size:10.5px; font-weight:700; color:#999; margin-right:auto;}
+  .futures-form{display:flex; gap:6px; align-items:center; flex-wrap:wrap;}
+  .futures-form input{
+    border:2.5px solid var(--ink); border-radius:999px; padding:6px 12px;
+    font-family:'Baloo 2'; font-weight:600; font-size:12.5px;
+  }
+  #futuresInput{width:150px;}
+  #futuresNoteInput{width:190px;}
+  .futures-form input:focus{outline:none; box-shadow: var(--shadow-hard-sm);}
+  .futures-list{
+    display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;
+  }
+  .future-chip{
+    position:relative;
+    display:inline-flex; align-items:center; gap:7px;
+    background:var(--yellow); border:2.5px solid var(--ink); border-radius:999px;
+    padding:5px 6px 5px 12px; font-weight:700; font-size:12.5px;
+    box-shadow: var(--shadow-hard-sm); cursor:default;
+  }
+  .future-chip .chip-tip{
+    position:absolute; bottom:calc(100% + 9px); left:50%; transform:translateX(-50%) scale(0.85);
+    background:#fff; border:2.5px solid var(--ink); border-radius:12px; padding:8px 11px;
+    font-size:11.5px; font-weight:700; color:#333; white-space:normal; width:180px;
+    box-shadow:3px 3px 0 var(--ink); opacity:0; pointer-events:none;
+    transition:opacity .15s ease, transform .15s ease; z-index:10; text-align:left;
+  }
+  .future-chip .chip-tip::after{
+    content:''; position:absolute; top:100%; left:50%; transform:translateX(-50%);
+    border:7px solid transparent; border-top-color:var(--ink);
+  }
+  .future-chip .chip-tip::before{
+    content:''; position:absolute; top:calc(100% - 3.5px); left:50%; transform:translateX(-50%);
+    border:5px solid transparent; border-top-color:#fff; z-index:1;
+  }
+  .future-chip:hover .chip-tip{opacity:1; transform:translateX(-50%) scale(1);}
+
+  .referral-chip{ background:var(--blue); color:#fff; }
+  .referral-chip button{ color:var(--ink); }
+  .referral-count{ background:var(--blue); color:#fff; }
+  #referralsInput{width:220px;}
+  #referralsNoteInput{width:190px;}
+  .future-chip button{
+    background:#fff; border:2px solid var(--ink); border-radius:50%;
+    width:19px; height:19px; display:flex; align-items:center; justify-content:center;
+    cursor:pointer; font-size:12px; line-height:1; padding:0; color:var(--ink);
+  }
+  .future-chip button:hover{background:#FF6F6F;}
+  .futures-empty{font-size:12px; font-weight:700; color:#aaa; padding:4px 2px;}
+
+  footer{text-align:center; font-size:11px; font-weight:700; color:#a89f8a; padding:16px 0 34px; position:relative; z-index:2;}
+</style>
+</head>
+<body>
+
+<svg class="floaty" style="--r:-8deg; top:78px; left:8px; width:26px;" viewBox="0 0 24 24" fill="none"><path d="M12 2l2.5 6.5L21 11l-6.5 2.5L12 20l-2.5-6.5L3 11l6.5-2.5L12 2z" fill="#FFD23F" stroke="#1B1B1B" stroke-width="1.4"/></svg>
+<svg class="floaty" style="--r:10deg; top:120px; right:24px; width:20px; animation-delay:1s;" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" fill="#33B7FF" stroke="#1B1B1B" stroke-width="1.4"/></svg>
+<svg class="floaty" style="--r:-4deg; top:200px; right:4%; width:22px; animation-delay:2s;" viewBox="0 0 24 24" fill="none"><path d="M12 2l2.5 6.5L21 11l-6.5 2.5L12 20l-2.5-6.5L3 11l6.5-2.5L12 2z" fill="#FF5FA2" stroke="#1B1B1B" stroke-width="1.4"/></svg>
+
+<header>
+  <div class="header-row">
+    <svg class="mascot" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#FFC93C" stroke="#1B1B1B" stroke-width="3"/>
+      <g transform="rotate(-18 32 32)">
+        <rect x="18" y="14" width="11" height="20" rx="5" fill="#FF6FA5" stroke="#1B1B1B" stroke-width="2.5"/>
+        <rect x="35" y="30" width="11" height="20" rx="5" fill="#FF6FA5" stroke="#1B1B1B" stroke-width="2.5"/>
+        <path d="M27 30c4 6 8 8 12 6" stroke="#1B1B1B" stroke-width="3" fill="none" stroke-linecap="round"/>
+      </g>
+      <circle cx="24" cy="22" r="2.2" fill="#1B1B1B"/>
+      <circle cx="41" cy="42" r="2.2" fill="#1B1B1B"/>
+    </svg>
+    <div class="brand-text">
+      <h1><span class="sah-tag">SAH</span>Out-of-Context Callback Tracker</h1>
+      <span class="sub">Missed 'em? Log 'em. Chase for 7 days, then we let it go. ☎️</span>
+    </div>
+
+    <div class="search-wrap">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input id="searchInput" type="text" placeholder="Search name, number, zip, state…">
+    </div>
+
+    <span id="saveStatus" class="save-status">Saved ✓</span>
+    <button class="btn btn-ghost btn-sm" id="exportBtn">Backup (.json)</button>
+    <button class="btn btn-ghost btn-sm" id="importBtn">Import</button>
+    <input type="file" id="importFile" accept="application/json" style="display:none">
+    <button class="btn btn-completed btn-sm" id="exportExcelBtn">📊 Export month (.xlsx)</button>
+    <button class="btn btn-sm" id="clearAllBtn" style="background:#FFE1E1;color:#B02A2A;">🧹 Clear all</button>
+    <button class="btn btn-primary" id="addBtn">+ Log a callback</button>
+  </div>
+</header>
+
+<div class="storage-warning" id="storageWarning" style="display:none;">
+  ⚠️ This browser is blocking local storage — the tracker won't remember your data after you close it. Open this file directly in Chrome, Edge, or Firefox (not a preview pane), and make sure private/incognito mode is off. Use <b>Export</b> as a backup regardless.
+</div>
+
+<div class="futures-bar">
+  <div class="futures-head">
+    <span class="futures-emoji">🔮</span>
+    <span class="futures-title">Futures</span>
+    <span class="futures-count" id="futuresCount">0</span>
+    <span class="futures-hint">qualified, hasn't said no yet</span>
+    <form id="futuresForm" class="futures-form">
+      <input id="futuresInput" type="text" placeholder="Add a phone number…" inputmode="tel">
+      <input id="futuresNoteInput" type="text" placeholder="Why's this a future? (optional)">
+      <button type="submit" class="btn btn-sm btn-primary">+ Add</button>
+    </form>
+  </div>
+  <div class="futures-list" id="futuresList"></div>
+</div>
+
+<div class="futures-bar referrals-bar">
+  <div class="futures-head">
+    <span class="futures-emoji">📇</span>
+    <span class="futures-title">Referrals</span>
+    <span class="futures-count referral-count" id="referralsCount">0</span>
+    <span class="futures-hint">to skip trace</span>
+    <form id="referralsForm" class="futures-form">
+      <input id="referralsInput" type="text" placeholder="Add an address…">
+      <input id="referralsNoteInput" type="text" placeholder="Who referred them / why? (optional)">
+      <button type="submit" class="btn btn-sm btn-primary">+ Add</button>
+    </form>
+  </div>
+  <div class="futures-list" id="referralsList"></div>
+</div>
+
+<div class="stats-strip" id="statsStrip"></div>
+
+<main class="board" id="board">
+  <section class="column" data-stage="pending">
+    <div class="col-head pending">
+      <span class="col-emoji">🕒</span>
+      <div><span class="col-title">Pending</span><span class="col-desc">Log an attempt each day · 7 tries max</span></div>
+      <span class="col-count" id="count-pending">0</span>
+    </div>
+    <div class="col-body" id="body-pending"></div>
+  </section>
+
+  <section class="column" data-stage="completed">
+    <div class="col-head completed">
+      <span class="col-emoji">🎉</span>
+      <div><span class="col-title">Completed</span><span class="col-desc">Reached &amp; wrapped up</span></div>
+      <span class="col-count" id="count-completed">0</span>
+    </div>
+    <div class="col-body" id="body-completed"></div>
+  </section>
+
+  <section class="column" data-stage="recycled">
+    <div class="col-head recycled">
+      <span class="col-emoji">♻️</span>
+      <div><span class="col-title">Recycled</span><span class="col-desc">7 days, no dice — released</span></div>
+      <span class="col-count" id="count-recycled">0</span>
+    </div>
+    <div class="col-body" id="body-recycled"></div>
+  </section>
+</main>
+
+<footer>Data lives only in this browser (localStorage) · Export often to keep a backup · Timezones are ZIP-estimated, so double check border areas ✌️</footer>
+
+<!-- Add Modal -->
+<div class="overlay" id="formOverlay">
+  <div class="modal">
+    <h2>Log a callback 📞</h2>
+    <p class="modal-sub">Didn't reach 'em? Toss it in Pending and we'll track the chase.</p>
+    <div class="field"><label>Name *</label><input id="f-name" type="text" placeholder="Who'd you dial?"></div>
+    <div class="field"><label>Number *</label><input id="f-phone" type="text" placeholder="e.g. (555) 012-3344"></div>
+    <div class="field"><label>Zipcode *</label><input id="f-zip" type="text" inputmode="numeric" maxlength="10" placeholder="e.g. 75201"></div>
+    <div class="zip-preview" id="zipPreview"></div>
+    <div class="field"><label>Additional notes</label><textarea id="f-notes" placeholder="Voicemail left, best time to try again, etc."></textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="formCancel">Cancel</button>
+      <button class="btn btn-primary" id="formSave">Save it ✍️</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  const STORAGE_KEY = 'sahOOCCallbackTracker_v1';
+
+  // ---------- ZIP -> state (approximate USPS 3-digit prefix ranges) ----------
+  const ZIP_RANGES = [
+    [6,9,'PR'],[10,27,'MA'],[28,29,'RI'],[30,38,'NH'],[39,49,'ME'],[50,59,'VT'],
+    [60,69,'CT'],[70,89,'NJ'],[100,149,'NY'],[150,196,'PA'],[197,199,'DE'],
+    [200,205,'DC'],[206,219,'MD'],[220,246,'VA'],[247,268,'WV'],[270,289,'NC'],
+    [290,299,'SC'],[300,319,'GA'],[320,339,'FL'],[340,349,'FL'],[350,369,'AL'],
+    [370,385,'TN'],[386,397,'MS'],[398,399,'GA'],[400,427,'KY'],[430,459,'OH'],
+    [460,479,'IN'],[480,499,'MI'],[500,528,'IA'],[530,549,'WI'],[550,567,'MN'],
+    [570,577,'SD'],[580,588,'ND'],[590,599,'MT'],[600,629,'IL'],[630,658,'MO'],
+    [660,679,'KS'],[680,693,'NE'],[700,714,'LA'],[716,729,'AR'],[730,749,'OK'],
+    [750,799,'TX'],[800,816,'CO'],[820,831,'WY'],[832,838,'ID'],[840,847,'UT'],
+    [850,865,'AZ'],[870,884,'NM'],[889,898,'NV'],[900,961,'CA'],[967,968,'HI'],
+    [970,979,'OR'],[980,994,'WA'],[995,999,'AK']
+  ];
+  const STATE_TZ = {
+    AL:['CT','Central'], AK:['AKT','Alaska'], AZ:['MT','Mountain – no DST'], AR:['CT','Central'],
+    CA:['PT','Pacific'], CO:['MT','Mountain'], CT:['ET','Eastern'], DE:['ET','Eastern'],
+    DC:['ET','Eastern'], FL:['ET','Eastern'], GA:['ET','Eastern'], HI:['HT','Hawaii – no DST'],
+    ID:['MT','Mountain'], IL:['CT','Central'], IN:['ET','Eastern'], IA:['CT','Central'],
+    KS:['CT','Central'], KY:['ET','Eastern'], LA:['CT','Central'], ME:['ET','Eastern'],
+    MD:['ET','Eastern'], MA:['ET','Eastern'], MI:['ET','Eastern'], MN:['CT','Central'],
+    MS:['CT','Central'], MO:['CT','Central'], MT:['MT','Mountain'], NE:['CT','Central'],
+    NV:['PT','Pacific'], NH:['ET','Eastern'], NJ:['ET','Eastern'], NM:['MT','Mountain'],
+    NY:['ET','Eastern'], NC:['ET','Eastern'], ND:['CT','Central'], OH:['ET','Eastern'],
+    OK:['CT','Central'], OR:['PT','Pacific'], PA:['ET','Eastern'], PR:['AT','Atlantic'],
+    RI:['ET','Eastern'], SC:['ET','Eastern'], SD:['CT','Central'], TN:['CT','Central'],
+    TX:['CT','Central'], UT:['MT','Mountain'], VT:['ET','Eastern'], VA:['ET','Eastern'],
+    WA:['PT','Pacific'], WV:['ET','Eastern'], WI:['CT','Central'], WY:['MT','Mountain']
+  };
+  function lookupZip(zip){
+    const digits = (zip||'').replace(/\D/g,'');
+    if(digits.length < 3) return null;
+    const prefix = parseInt(digits.slice(0,3),10);
+    if(isNaN(prefix)) return null;
+    const hit = ZIP_RANGES.find(r => prefix >= r[0] && prefix <= r[1]);
+    if(!hit) return null;
+    const state = hit[2];
+    const tz = STATE_TZ[state];
+    return { state, tzCode: tz ? tz[0] : null, tzLabel: tz ? tz[1] : null };
+  }
+
+  let storageOK = true;
+  function checkStorage(){
+    try{ const t='__sah_ooc_test__'; localStorage.setItem(t,'1'); localStorage.removeItem(t); return true; }
+    catch(e){ return false; }
+  }
+  storageOK = checkStorage();
+  if(!storageOK) document.getElementById('storageWarning').style.display = 'block';
+
+  let state = load();
+  if(!Array.isArray(state.futures)) state.futures = [];
+  if(!Array.isArray(state.referrals)) state.referrals = [];
+  function load(){
+    if(!storageOK) return { items: [] };
+    try{ const raw = localStorage.getItem(STORAGE_KEY); if(raw) return JSON.parse(raw); }catch(e){}
+    return { items: [] };
+  }
+  function persist(){
+    if(!storageOK) return;
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); flashSaved(); }
+    catch(e){ storageOK = false; document.getElementById('storageWarning').style.display = 'block'; }
+  }
+  function save(){ persist(); render(); }
+  function flashSaved(){
+    const el = document.getElementById('saveStatus');
+    el.classList.add('show');
+    clearTimeout(flashSaved._h);
+    flashSaved._h = setTimeout(()=>el.classList.remove('show'), 1400);
+  }
+
+  function uid(){ return 'o' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+  function todayStr(){ return new Date().toISOString().slice(0,10); }
+  function dateOnly(d){ const x = new Date(d); x.setHours(0,0,0,0); return x; }
+  function daysSince(iso){ return Math.floor((dateOnly(new Date()) - dateOnly(new Date(iso))) / 86400000); }
+  function fmtDate(iso){ if(!iso) return ''; return new Date(iso).toLocaleDateString(undefined,{month:'short',day:'numeric'}); }
+  function fmtDateFull(iso){ if(!iso) return ''; return new Date(iso).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}); }
+  function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+  function toast(msg){
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.classList.add('show');
+    clearTimeout(toast._h); toast._h = setTimeout(()=>t.classList.remove('show'), 2200);
+  }
+
+  function addItem(data){
+    const geo = lookupZip(data.zip) || {};
+    state.items.push({
+      id: uid(), name: data.name, phone: data.phone, zip: data.zip, notes: data.notes,
+      addrState: geo.state || null, tzCode: geo.tzCode || null, tzLabel: geo.tzLabel || null,
+      stage: 'pending',
+      createdAt: new Date().toISOString(), stageUpdatedAt: new Date().toISOString(),
+      dayCount: 1, lastCalledOn: null, autoMoved: false
+    });
+    save();
+    toast('Logged — into Pending it goes 🕒');
+  }
+
+  function moveTo(id, stage){
+    const it = state.items.find(i=>i.id===id);
+    if(!it) return;
+    it.stage = stage;
+    it.stageUpdatedAt = new Date().toISOString();
+    it.autoMoved = false;
+    if(stage === 'pending'){ it.dayCount = 1; it.lastCalledOn = null; }
+    save();
+  }
+
+  function logAttempt(id){
+    const it = state.items.find(i=>i.id===id);
+    if(!it) return;
+    if(it.lastCalledOn === todayStr()){ toast('Already logged an attempt today'); return; }
+    it.lastCalledOn = todayStr();
+    it.dayCount = Math.min(7, (it.dayCount||0) + 1);
+    if(it.dayCount >= 7){
+      it.stage = 'recycled';
+      it.stageUpdatedAt = new Date().toISOString();
+      it.autoMoved = true;
+      toast(it.name + ' hit day 7 — recycled ♻️');
+    } else {
+      toast('Attempt logged · day ' + it.dayCount + ' of 7');
+    }
+    save();
+  }
+
+  function deleteItem(id){
+    if(!confirm('Delete this callback permanently? This cannot be undone.')) return;
+    state.items = state.items.filter(i=>i.id!==id);
+    save();
+  }
+
+  function addFuture(phone, note){
+    phone = phone.trim();
+    if(!phone) return;
+    state.futures.push({ id: uid(), phone, note: (note||'').trim(), createdAt: new Date().toISOString() });
+    save();
+  }
+  function deleteFuture(id){
+    state.futures = state.futures.filter(f=>f.id!==id);
+    save();
+  }
+  function renderFutures(){
+    document.getElementById('futuresCount').textContent = state.futures.length;
+    const list = document.getElementById('futuresList');
+    if(!state.futures.length){
+      list.innerHTML = `<div class="futures-empty">No futures yet — add a number above.</div>`;
+      return;
+    }
+    list.innerHTML = state.futures.map(f => `
+      <span class="future-chip">
+        ${f.note ? `<span class="chip-tip">${escapeHtml(f.note)}</span>` : ''}
+        ☎️ ${escapeHtml(f.phone)}
+        <button title="Remove" onclick="OOC.deleteFuture('${f.id}')">×</button>
+      </span>`).join('');
+  }
+
+  function addReferral(address, note){
+    address = address.trim();
+    if(!address) return;
+    state.referrals.push({ id: uid(), address, note: (note||'').trim(), createdAt: new Date().toISOString() });
+    save();
+  }
+  function deleteReferral(id){
+    state.referrals = state.referrals.filter(r=>r.id!==id);
+    save();
+  }
+  function renderReferrals(){
+    document.getElementById('referralsCount').textContent = state.referrals.length;
+    const list = document.getElementById('referralsList');
+    if(!state.referrals.length){
+      list.innerHTML = `<div class="futures-empty">No referrals yet — add an address above.</div>`;
+      return;
+    }
+    list.innerHTML = state.referrals.map(r => `
+      <span class="future-chip referral-chip">
+        ${r.note ? `<span class="chip-tip">${escapeHtml(r.note)}</span>` : ''}
+        🏠 ${escapeHtml(r.address)}
+        <button title="Remove" onclick="OOC.deleteReferral('${r.id}')">×</button>
+      </span>`).join('');
+  }
+
+  // ---------- rendering ----------
+  function geoTagsHtml(it){
+    if(!it.addrState) return `<span class="tag tag-unknown">📍 ZIP not recognized</span>`;
+    return `<span class="tag tag-state">📍 ${it.addrState}</span><span class="tag tag-tz">🕓 ${it.tzLabel} (${it.tzCode})</span>`;
+  }
+
+  function cardTemplate(it){
+    let actions = '', extraBlock = '';
+
+    if(it.stage === 'pending'){
+      const dayCount = it.dayCount || 1;
+      const isFinal = dayCount >= 7;
+      const dots = Array.from({length:7}, (_,i)=>{
+        const n=i+1; let cls='';
+        if(n < dayCount) cls='filled';
+        else if(n === dayCount) cls='filled today';
+        return `<i class="${cls}"></i>`;
+      }).join('');
+      extraBlock = `
+        <div class="day-tracker">
+          <div class="day-dots">${dots}</div>
+          <span class="day-label ${isFinal?'final':''}">Day ${dayCount} / 7</span>
+        </div>
+        ${isFinal ? '<span class="badge-final">Last day!</span>' : ''}
+        <div class="card-meta">Last attempt: ${it.lastCalledOn ? fmtDate(it.lastCalledOn) : '— none yet'}</div>`;
+      actions = `
+        <button class="btn btn-sm btn-pending" onclick="OOC.logAttempt('${it.id}')" ${it.lastCalledOn===todayStr() ? 'disabled style="opacity:.4;cursor:default;"' : ''}>📞 Log attempt</button>
+        <button class="btn btn-sm btn-completed" onclick="OOC.moveTo('${it.id}','completed')">🎉 Completed</button>
+        <button class="btn btn-sm btn-recycled" onclick="OOC.moveTo('${it.id}','recycled')">♻️ Recycle now</button>`;
+    } else if(it.stage === 'completed'){
+      extraBlock = `<div class="card-meta">Wrapped up: ${fmtDate(it.stageUpdatedAt)}</div>`;
+      actions = `<button class="btn btn-sm btn-pending" onclick="OOC.moveTo('${it.id}','pending')">↩️ Reopen</button>`;
+    } else if(it.stage === 'recycled'){
+      extraBlock = `<div class="card-meta">${it.autoMoved ? '♻️ Auto-recycled after 7 logged attempts' : '♻️ Recycled manually'} · ${fmtDate(it.stageUpdatedAt)}</div>`;
+      actions = `<button class="btn btn-sm btn-pending" onclick="OOC.moveTo('${it.id}','pending')">🔄 Revive → Pending</button>`;
+    }
+
+    return `
+      <div class="card" data-id="${it.id}">
+        <div class="card-top">
+          <div>
+            <div class="card-name">${escapeHtml(it.name)}</div>
+            <div class="card-phone">☎️ ${escapeHtml(it.phone)}</div>
+          </div>
+          <button class="icon-btn" title="Delete" onclick="OOC.deleteItem('${it.id}')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+          </button>
+        </div>
+        <div class="card-tags">${geoTagsHtml(it)}</div>
+        ${it.notes ? `<div class="card-notes">${escapeHtml(it.notes)}</div>` : ''}
+        ${extraBlock}
+        <div class="card-actions">${actions}</div>
+      </div>`;
+  }
+
+  function matchesSearch(it,q){
+    if(!q) return true;
+    q = q.toLowerCase();
+    return (it.name||'').toLowerCase().includes(q) ||
+           (it.phone||'').toLowerCase().includes(q) ||
+           (it.zip||'').toLowerCase().includes(q) ||
+           (it.addrState||'').toLowerCase().includes(q) ||
+           (it.notes||'').toLowerCase().includes(q);
+  }
+
+  function emptyMsg(stage,q){
+    if(q) return 'Nothing matches that search here.';
+    const map = {
+      pending:'Nobody in the chase right now. 🎣',
+      completed:'No wins logged yet — go get some! 💪',
+      recycled:'Recycling bin is empty. Fresh start!'
+    };
+    return map[stage] || '';
+  }
+
+  function render(){
+    renderFutures();
+    renderReferrals();
+    const q = document.getElementById('searchInput').value.trim();
+    const stages = ['pending','completed','recycled'];
+    const counts = {pending:0,completed:0,recycled:0};
+
+    stages.forEach(stage=>{
+      const body = document.getElementById('body-'+stage);
+      const items = state.items
+        .filter(i=>i.stage===stage && matchesSearch(i,q))
+        .sort((a,b)=> new Date(b.stageUpdatedAt) - new Date(a.stageUpdatedAt));
+      counts[stage] = state.items.filter(i=>i.stage===stage).length;
+      body.innerHTML = items.length ? items.map(cardTemplate).join('') : `<div class="empty-hint">${emptyMsg(stage,q)}</div>`;
+    });
+    stages.forEach(s=> document.getElementById('count-'+s).textContent = counts[s]);
+
+    const total = state.items.length;
+    document.getElementById('statsStrip').innerHTML =
+      `<span><b>${total}</b> total</span>
+       <span><b>${counts.pending}</b> pending</span>
+       <span><b>${counts.completed}</b> completed</span>
+       <span><b>${counts.recycled}</b> recycled</span>`;
+  }
+
+  // ---------- form modal ----------
+  const formOverlay = document.getElementById('formOverlay');
+  const zipInput = document.getElementById('f-zip');
+  const zipPreview = document.getElementById('zipPreview');
+
+  function updateZipPreview(){
+    const geo = lookupZip(zipInput.value);
+    if(!zipInput.value.trim()){ zipPreview.textContent=''; return; }
+    if(geo){
+      zipPreview.textContent = `→ ${geo.state} · ${geo.tzLabel} (${geo.tzCode})`;
+      zipPreview.className = 'zip-preview ok';
+    } else {
+      zipPreview.textContent = `→ Couldn't match that ZIP — state/timezone will be blank`;
+      zipPreview.className = 'zip-preview bad';
+    }
+  }
+  zipInput.addEventListener('input', updateZipPreview);
+
+  document.getElementById('addBtn').addEventListener('click', ()=>{
+    document.getElementById('f-name').value='';
+    document.getElementById('f-phone').value='';
+    zipInput.value='';
+    document.getElementById('f-notes').value='';
+    zipPreview.textContent=''; zipPreview.className='zip-preview';
+    formOverlay.classList.add('open');
+    setTimeout(()=>document.getElementById('f-name').focus(), 50);
+  });
+  document.getElementById('formCancel').addEventListener('click', ()=>formOverlay.classList.remove('open'));
+  formOverlay.addEventListener('click', e=>{ if(e.target===formOverlay) formOverlay.classList.remove('open'); });
+  document.getElementById('formSave').addEventListener('click', ()=>{
+    const name = document.getElementById('f-name').value.trim();
+    const phone = document.getElementById('f-phone').value.trim();
+    const zip = zipInput.value.trim();
+    if(!name){ toast('Name is required'); document.getElementById('f-name').focus(); return; }
+    if(!phone){ toast('Number is required'); document.getElementById('f-phone').focus(); return; }
+    if(!zip){ toast('Zipcode is required'); zipInput.focus(); return; }
+    addItem({ name, phone, zip, notes: document.getElementById('f-notes').value.trim() });
+    formOverlay.classList.remove('open');
+  });
+
+  // ---------- search ----------
+  document.getElementById('searchInput').addEventListener('input', render);
+
+  // ---------- futures ----------
+  document.getElementById('futuresForm').addEventListener('submit', (e)=>{
+    e.preventDefault();
+    const input = document.getElementById('futuresInput');
+    const noteInput = document.getElementById('futuresNoteInput');
+    if(!input.value.trim()){ toast('Enter a phone number first'); return; }
+    addFuture(input.value, noteInput.value);
+    input.value = ''; noteInput.value = '';
+    input.focus();
+  });
+
+  // ---------- referrals ----------
+  document.getElementById('referralsForm').addEventListener('submit', (e)=>{
+    e.preventDefault();
+    const input = document.getElementById('referralsInput');
+    const noteInput = document.getElementById('referralsNoteInput');
+    if(!input.value.trim()){ toast('Enter an address first'); return; }
+    addReferral(input.value, noteInput.value);
+    input.value = ''; noteInput.value = '';
+    input.focus();
+  });
+
+  // ---------- export / import ----------
+  document.getElementById('exportBtn').addEventListener('click', ()=>{
+    const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'ooc-callback-tracker-backup-' + todayStr() + '.json';
+    a.click(); URL.revokeObjectURL(url);
+  });
+  document.getElementById('importBtn').addEventListener('click', ()=>document.getElementById('importFile').click());
+  document.getElementById('importFile').addEventListener('change', (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = evt =>{
+      try{
+        const data = JSON.parse(evt.target.result);
+        if(!data.items) throw new Error('bad format');
+        if(confirm('Import will replace your current tracker (' + state.items.length + ' items) with ' + data.items.length + ' items. Continue?')){
+          state = data; if(!Array.isArray(state.futures)) state.futures = []; if(!Array.isArray(state.referrals)) state.referrals = []; save(); toast('Tracker imported');
+        }
+      }catch(err){ alert('Could not read that file. Make sure it is a tracker export.'); }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  });
+
+  // ---------- monthly spreadsheet export ----------
+  function monthLabel(){
+    return new Date().toLocaleDateString(undefined,{month:'long',year:'numeric'});
+  }
+  function monthFileSlug(){
+    return new Date().toLocaleDateString('en-US',{month:'long',year:'numeric'}).toLowerCase().replace(' ','-');
+  }
+  document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
+    if(typeof XLSX === 'undefined'){
+      alert('The spreadsheet library failed to load (needs an internet connection the first time). Check your connection and try again.');
+      return;
+    }
+    const pending = state.items.filter(i=>i.stage==='pending').map(i => ({
+      Name: i.name, Phone: i.phone, State: i.addrState||'', Timezone: i.tzLabel ? `${i.tzLabel} (${i.tzCode})` : '',
+      Zipcode: i.zip, Notes: i.notes||'', 'Day Count': i.dayCount||1, 'Last Attempt': i.lastCalledOn||'',
+      'Logged On': fmtDateFull(i.createdAt)
+    }));
+    const completed = state.items.filter(i=>i.stage==='completed').map(i => ({
+      Name: i.name, Phone: i.phone, State: i.addrState||'', Timezone: i.tzLabel ? `${i.tzLabel} (${i.tzCode})` : '',
+      Zipcode: i.zip, Notes: i.notes||'', 'Logged On': fmtDateFull(i.createdAt), 'Completed On': fmtDateFull(i.stageUpdatedAt)
+    }));
+    const recycled = state.items.filter(i=>i.stage==='recycled').map(i => ({
+      Name: i.name, Phone: i.phone, State: i.addrState||'', Timezone: i.tzLabel ? `${i.tzLabel} (${i.tzCode})` : '',
+      Zipcode: i.zip, Notes: i.notes||'', 'Logged On': fmtDateFull(i.createdAt), 'Recycled On': fmtDateFull(i.stageUpdatedAt),
+      Reason: i.autoMoved ? 'Auto (7 attempts)' : 'Manual'
+    }));
+    const futures = state.futures.map(f => ({
+      Phone: f.phone, Note: f.note||'', 'Added On': fmtDateFull(f.createdAt)
+    }));
+    const referrals = state.referrals.map(r => ({
+      Address: r.address, Note: r.note||'', 'Added On': fmtDateFull(r.createdAt)
+    }));
+
+    const wb = XLSX.utils.book_new();
+    function addSheet(rows, name, fallbackCols){
+      const ws = rows.length ? XLSX.utils.json_to_sheet(rows) : XLSX.utils.json_to_sheet([], {header: fallbackCols});
+      XLSX.utils.book_append_sheet(wb, ws, name);
+    }
+    addSheet(pending, 'Pending', ['Name','Phone','State','Timezone','Zipcode','Notes','Day Count','Last Attempt','Logged On']);
+    addSheet(completed, 'Completed', ['Name','Phone','State','Timezone','Zipcode','Notes','Logged On','Completed On']);
+    addSheet(recycled, 'Recycled', ['Name','Phone','State','Timezone','Zipcode','Notes','Logged On','Recycled On','Reason']);
+    addSheet(futures, 'Futures', ['Phone','Note','Added On']);
+    addSheet(referrals, 'Referrals', ['Address','Note','Added On']);
+
+    XLSX.writeFile(wb, `sah-ooc-tracker-${monthFileSlug()}.xlsx`);
+    toast(`Exported ${monthLabel()} to spreadsheet 📊`);
+  });
+
+  // ---------- clear all ----------
+  document.getElementById('clearAllBtn').addEventListener('click', ()=>{
+    const counts = {
+      pending: state.items.filter(i=>i.stage==='pending').length,
+      completed: state.items.filter(i=>i.stage==='completed').length,
+      recycled: state.items.filter(i=>i.stage==='recycled').length,
+      futures: state.futures.length,
+      referrals: state.referrals.length
+    };
+    const total = counts.pending + counts.completed + counts.recycled + counts.futures + counts.referrals;
+    if(!total){ toast('Nothing to clear — the board is already empty'); return; }
+    const msg = `This will permanently delete everything on the board:\n\n` +
+      `• ${counts.pending} pending\n• ${counts.completed} completed\n• ${counts.recycled} recycled\n• ${counts.futures} futures\n• ${counts.referrals} referrals\n\n` +
+      `Make sure you've exported a copy first — this can't be undone. Clear it all now?`;
+    if(!confirm(msg)) return;
+    state.items = [];
+    state.futures = [];
+    state.referrals = [];
+    save();
+    toast('Board cleared — fresh start! 🧼');
+  });
+
+  window.OOC = { moveTo, logAttempt, deleteItem, deleteFuture, deleteReferral };
+
+  render();
+})();
+</script>
+</body>
+</html>

@@ -188,6 +188,12 @@
   .tag-state{background:var(--blue); color:#fff;}
   .tag-tz{background:var(--yellow); color:var(--ink);}
   .tag-unknown{background:#eee; color:#888;}
+  .tag-copy{
+    background:#fff; cursor:pointer; padding:2px 7px; line-height:1;
+    transition:transform .08s ease, background .12s ease;
+  }
+  .tag-copy:hover{background:var(--yellow); transform:translateY(-1px);}
+  .tag-copy:active{transform:translateY(0) scale(0.92);}
 
   .card-notes{
     font-size:12px; font-weight:600; color:#444; margin-top:8px;
@@ -650,8 +656,37 @@
 
   // ---------- rendering ----------
   function geoTagsHtml(it){
-    if(!it.addrState) return `<span class="tag tag-unknown">📍 ZIP not recognized</span>`;
-    return `<span class="tag tag-state">📍 ${it.addrState}</span><span class="tag tag-tz">🕓 ${it.tzLabel} (${it.tzCode})</span>`;
+    const zip = it.zip || '';
+    const combo = [it.addrState, zip].filter(Boolean).join(' ');
+    const stateTag = it.addrState
+      ? `<span class="tag tag-state">📍 ${escapeHtml(it.addrState)} ${escapeHtml(zip)}</span>`
+      : `<span class="tag tag-unknown">📍 ${zip ? escapeHtml(zip) : 'ZIP not recognized'}</span>`;
+    const copyBtn = combo
+      ? `<button class="tag tag-copy" title="Copy state &amp; zip" onclick="OOC.copyGeo('${it.id}')">📋</button>`
+      : '';
+    const tzTag = it.addrState ? `<span class="tag tag-tz">🕓 ${it.tzLabel} (${it.tzCode})</span>` : '';
+    return stateTag + copyBtn + tzTag;
+  }
+
+  function copyGeo(id){
+    const it = state.items.find(i=>i.id===id);
+    if(!it) return;
+    const text = [it.addrState, it.zip].filter(Boolean).join(' ');
+    if(!text){ toast('Nothing to copy'); return; }
+    const done = () => toast('Copied ' + text + ' 📋');
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(done).catch(()=>fallbackCopy(text, done));
+    } else {
+      fallbackCopy(text, done);
+    }
+  }
+  function fallbackCopy(text, done){
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select();
+    try{ document.execCommand('copy'); done(); }
+    catch(e){ toast('Could not copy — select it manually'); }
+    document.body.removeChild(ta);
   }
 
   function cardTemplate(it){
@@ -909,7 +944,7 @@
     toast('Board cleared — fresh start! 🧼');
   });
 
-  window.OOC = { moveTo, logAttempt, deleteItem, deleteFuture, deleteReferral };
+  window.OOC = { moveTo, logAttempt, deleteItem, deleteFuture, deleteReferral, copyGeo };
 
   render();
 })();
